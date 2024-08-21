@@ -1,0 +1,677 @@
+<html>
+
+<head>
+    <base href="https://defendordie.com/%20peux%20tu%20enlever%20le%20son%20de%20fond">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Defend or Die: Retro Space Shooter with Hyperspace</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&q=80');
+            background-size: cover;
+            background-position: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        #start-screen h1 {
+            font-size: 72px;
+            margin-bottom: 20px;
+        }
+
+        #start-screen p {
+            font-size: 24px;
+            margin-bottom: 40px;
+        }
+
+        #game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #game-canvas {
+            border: 2px solid #0f0;
+            outline: none;
+        }
+
+        #mini-map {
+            border: 1px solid #0f0;
+            margin-bottom: 10px;
+        }
+
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 20px;
+        }
+
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: #f00;
+            display: none;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 36px;
+            color: #0f0;
+            text-align: center;
+        }
+
+        #hyperspace-cooldown {
+            position: absolute;
+            top: 40px;
+            left: 10px;
+            font-size: 16px;
+            color: #0f0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="game-container">
+        <canvas id="mini-map" width="1200" height="100"></canvas>
+        <canvas id="game-canvas" width="1200" height="600" tabindex="0"></canvas>
+        <div id="score">Score: 0</div>
+        <div id="hyperspace-cooldown">Hyperspace Ready</div>
+        <div id="help">Press ← → ↑ and ↓ to move the ship. Press SPACE to fire. Press I for hyperspace</div>
+        <div id="game-over">GAME OVER<br><span style="font-size: 24px;">Press ENTER to restart</span></div>
+        <!-- <div id="start-screen">
+            DEFEND OR DIE<br>
+            <span style="font-size: 24px;">Press ENTER to start</span><br><br>
+            <span style="font-size: 24px;">Press I for Hyperspace Jump.</span><br>
+            <span style="font-size: 24px;">Press ← → ↑ and ↓ to move the ship</span><br>
+            <span style="font-size: 24px;">Press SPACE to fire</span>
+        </div> -->
+        <div id="start-screen">
+            <h1>DEFEND OR DIE</h1>
+            <p>An epic space adventure awaits!</p>
+            <button id="start-button">Start Game</button>
+            <span style="font-size: 24px;">Press I for Hyperspace Jump.</span><br>
+            <span style="font-size: 24px;">Press ← → ↑ and ↓ to move the ship</span><br>
+            <span style="font-size: 24px;">Press SPACE to fire</span>
+          </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const miniMap = document.getElementById('mini-map');
+        const miniCtx = miniMap.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const gameOverElement = document.getElementById('game-over');
+        const startScreenElement = document.getElementById('start-screen');
+        const hyperspaceCooldownElement = document.getElementById('hyperspace-cooldown');
+        const startButton = document.getElementById('start-button');
+
+        let score = 0;
+        let gameOver = false;
+        let gameStarted = false;
+        let hyperspaceCooldown = 0;
+        const HYPERSPACE_COOLDOWN_TIME = 5000; // 5 seconds cooldown
+
+        // Audio context setup
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Sound effects
+        function playLaserSound() {
+            const duration = 0.2;
+            const startFreq = 1000;
+            const endFreq = 500;
+
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(startFreq, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(endFreq, audioContext.currentTime + duration);
+
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+
+        function playBombSound() {
+            const masterGain = audioContext.createGain();
+            masterGain.connect(audioContext.destination);
+
+            // Son de l'explosion principale
+            const mainOsc = audioContext.createOscillator();
+            mainOsc.type = 'sawtooth';
+            mainOsc.frequency.setValueAtTime(100, audioContext.currentTime);
+            mainOsc.frequency.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 1.5);
+
+            const mainGain = audioContext.createGain();
+            mainGain.gain.setValueAtTime(1, audioContext.currentTime);
+            mainGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.5);
+
+            mainOsc.connect(mainGain);
+            mainGain.connect(masterGain);
+
+            // Son de débris
+            const debrisFilter = audioContext.createBiquadFilter();
+            debrisFilter.type = 'bandpass';
+            debrisFilter.frequency.setValueAtTime(1000, audioContext.currentTime);
+            debrisFilter.Q.setValueAtTime(0.7, audioContext.currentTime);
+
+            const debrisGain = audioContext.createGain();
+            debrisGain.gain.setValueAtTime(0, audioContext.currentTime);
+            debrisGain.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.1);
+            debrisGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 2);
+
+            const debrisOsc = audioContext.createOscillator();
+            debrisOsc.type = 'white';
+
+            debrisOsc.connect(debrisFilter);
+            debrisFilter.connect(debrisGain);
+            debrisGain.connect(masterGain);
+
+            // Son de l'onde de choc
+            const shockwaveOsc = audioContext.createOscillator();
+            shockwaveOsc.type = 'sine';
+            shockwaveOsc.frequency.setValueAtTime(50, audioContext.currentTime);
+            shockwaveOsc.frequency.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+            const shockwaveGain = audioContext.createGain();
+            shockwaveGain.gain.setValueAtTime(1, audioContext.currentTime);
+            shockwaveGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5);
+
+            shockwaveOsc.connect(shockwaveGain);
+            shockwaveGain.connect(masterGain);
+
+            // Démarrer les oscillateurs
+            mainOsc.start();
+            debrisOsc.start();
+            shockwaveOsc.start();
+
+            // Arrêter les oscillateurs
+            mainOsc.stop(audioContext.currentTime + 1.5);
+            debrisOsc.stop(audioContext.currentTime + 2);
+            shockwaveOsc.stop(audioContext.currentTime + 0.5);
+        }
+
+        function playExplosionSound() {
+            const duration = 0.3;
+            /*
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + duration);
+
+            gainNode.gain.setValueAtTime(0.8, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + duration); */
+
+            const gainNode = audioContext.createGain();
+            gainNode.connect(audioContext.destination);
+
+            // Créer un oscillateur pour le son principal
+            const osc = audioContext.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100, audioContext.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + duration);
+
+            // Connecter l'oscillateur au noeud de gain
+            osc.connect(gainNode);
+
+            // Configurer l'enveloppe de volume
+            gainNode.gain.setValueAtTime(1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+
+            // Démarrer l'oscillateur
+            osc.start();
+            osc.stop(audioContext.currentTime + duration);
+        }
+
+        function playHyperspaceSound() {
+            const duration = 0.5;
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(100, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(2000, audioContext.currentTime + duration / 2);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + duration);
+
+            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.8, audioContext.currentTime + duration / 2);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + duration);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+
+        // Load the sprite images
+        const playerSprite = new Image();
+        playerSprite.src = 'data:image/png;base64,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'
+
+        const enemySprite = new Image();
+        enemySprite.src = 'data:image/png;base64,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'
+
+        const player = {
+            x: 50,
+            y: canvas.height / 2,
+            width: 64,
+            height: 32,
+            speed: 5,
+            direction: 1
+        };
+
+        const bullets = [];
+        const enemies = [];
+        const stars = [];
+        const terrain = [];
+        const explosions = [];
+
+        function createExplosion(x, y) {
+            const particleCount = 50;
+            const explosion = [];
+            for (let i = 0; i < particleCount; i++) {
+                explosion.push({
+                    x: x,
+                    y: y,
+                    radius: Math.random() * 3 + 1,
+                    color: `hsl(${Math.random() * 60 + 15}, 100%, 50%)`,
+                    velocity: {
+                        x: (Math.random() - 0.5) * 8,
+                        y: (Math.random() - 0.5) * 8
+                    },
+                    alpha: 1
+                });
+            }
+            explosions.push(explosion);
+        }
+
+        function updateExplosions() {
+            explosions.forEach((explosion, explosionIndex) => {
+                explosion.forEach((particle, particleIndex) => {
+                    particle.x += particle.velocity.x;
+                    particle.y += particle.velocity.y;
+                    particle.alpha -= 0.02;
+
+                    if (particle.alpha <= 0) {
+                        explosion.splice(particleIndex, 1);
+                    }
+                });
+
+                if (explosion.length === 0) {
+                    explosions.splice(explosionIndex, 1);
+                }
+            });
+        }
+
+        function drawExplosions() {
+            explosions.forEach(explosion => {
+                explosion.forEach(particle => {
+                    ctx.beginPath();
+                    ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${parseInt(particle.color.slice(4, particle.color.indexOf(',')))}, ${parseInt(particle.color.slice(particle.color.indexOf(',') + 1, particle.color.lastIndexOf(',')))}, ${parseInt(particle.color.slice(particle.color.lastIndexOf(',') + 1, -1))}, ${particle.alpha})`;
+                    ctx.fill();
+                });
+            });
+        }
+
+        function createTerrain() {
+            const segmentWidth = 5;
+            const totalSegments = Math.ceil(canvas.width / segmentWidth) * 2; // Double the width for scrolling
+            let y = canvas.height - 50;
+            for (let i = 0; i < totalSegments; i++) {
+                y += Math.random() * 6 - 3;
+                y = Math.max(canvas.height - 100, Math.min(canvas.height - 20, y));
+                terrain.push({ x: i * segmentWidth, y: y });
+            }
+        }
+
+        function createStars() {
+            for (let i = 0; i < 150; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2,
+                    speed: Math.random() * 2 + 1
+                });
+            }
+        }
+
+        function drawPlayer() {
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.scale(player.direction, 0.5);
+            ctx.drawImage(playerSprite, player.direction === 1 ? -player.width / 2 : -player.width / 2, -player.height / 2, player.width, player.height);
+            ctx.restore();
+        }
+
+        function drawBullets() {
+            ctx.fillStyle = '#ff0';
+            bullets.forEach(bullet => {
+                ctx.fillRect(bullet.x, bullet.y, 5, 2);
+            });
+        }
+
+        function drawEnemies() {
+            enemies.forEach(enemy => {
+                ctx.drawImage(enemySprite, enemy.x - enemy.width / 2, enemy.y - enemy.height / 2, enemy.width, enemy.height);
+            });
+        }
+
+        function drawStars() {
+            ctx.fillStyle = '#fff';
+            stars.forEach(star => {
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+        }
+
+        function drawTerrain() {
+            ctx.beginPath();
+            ctx.moveTo(terrain[0].x, canvas.height);
+            terrain.forEach(point => {
+                ctx.lineTo(point.x, point.y);
+            });
+            ctx.lineTo(terrain[terrain.length - 1].x, canvas.height);
+            ctx.fillStyle = '#2a2';
+            ctx.fill();
+        }
+
+        function updatePlayer() {
+            if (keys.ArrowUp && player.y > player.height / 2) player.y -= player.speed;
+            if (keys.ArrowDown && player.y < canvas.height - player.height / 2) player.y += player.speed;
+            if (keys.ArrowLeft && player.x > player.width / 2) {
+                player.x -= player.speed;
+                player.direction = -1;
+            }
+            if (keys.ArrowRight && player.x < canvas.width - player.width / 2) {
+                player.x += player.speed;
+                player.direction = 1;
+            }
+        }
+
+        function updateBullets() {
+            bullets.forEach((bullet, index) => {
+                bullet.x += 10 * bullet.direction;
+                if (bullet.x > canvas.width || bullet.x < 0) bullets.splice(index, 1);
+            });
+        }
+
+        function updateEnemies() {
+            if (Math.random() < 0.02) {
+                enemies.push({
+                    x: canvas.width,
+                    y: Math.random() * (canvas.height - 100),
+                    width: 32,
+                    height: 32,
+                    speed: Math.random() * 2 + 1
+                });
+            }
+
+            enemies.forEach((enemy, index) => {
+                enemy.x -= enemy.speed;
+                if (enemy.x + enemy.width / 2 < 0) {
+                    enemies.splice(index, 1);
+                    score--;
+                    updateScore();
+                }
+            });
+        }
+
+        function updateStars() {
+            stars.forEach(star => {
+                star.x -= star.speed;
+                if (star.x < 0) {
+                    star.x = canvas.width;
+                    star.y = Math.random() * canvas.height;
+                }
+            });
+        }
+
+        function updateTerrain() {
+            terrain.forEach(point => {
+                point.x -= 1; // Adjust this value to change the scrolling speed
+            });
+
+            if (terrain[0].x <= -5) {
+                terrain.shift();
+                const lastPoint = terrain[terrain.length - 1];
+                let newY = lastPoint.y + Math.random() * 6 - 3;
+                newY = Math.max(canvas.height - 100, Math.min(canvas.height - 20, newY));
+                terrain.push({ x: lastPoint.x + 5, y: newY });
+            }
+        }
+
+        function checkCollisions() {
+            bullets.forEach((bullet, bulletIndex) => {
+                enemies.forEach((enemy, enemyIndex) => {
+                    if (
+                        bullet.x < enemy.x + enemy.width / 2 &&
+                        bullet.x + 5 > enemy.x - enemy.width / 2 &&
+                        bullet.y > enemy.y - enemy.height / 2 &&
+                        bullet.y < enemy.y + enemy.height / 2
+                    ) {
+                        bullets.splice(bulletIndex, 1);
+                        enemies.splice(enemyIndex, 1);
+                        score += 10;
+                        updateScore();
+                        playExplosionSound();
+                        createExplosion(enemy.x, enemy.y);
+                    }
+                });
+            });
+
+            enemies.forEach(enemy => {
+                if (
+                    player.x - player.width / 2 < enemy.x + enemy.width / 2 &&
+                    player.x + player.width / 2 > enemy.x - enemy.width / 2 &&
+                    player.y - player.height / 2 < enemy.y + enemy.height / 2 &&
+                    player.y + player.height / 2 > enemy.y - enemy.height / 2
+                ) {
+                    gameOver = true;
+                    gameOverElement.style.display = 'block';
+                    createExplosion(player.x, player.y);
+                    playExplosionSound();
+                }
+            });
+        }
+
+        function updateScore() {
+            scoreElement.textContent = `Score: ${score}`;
+        }
+
+        function drawMiniMap() {
+            miniCtx.clearRect(0, 0, miniMap.width, miniMap.height);
+            miniCtx.fillStyle = '#000';
+            miniCtx.fillRect(0, 0, miniMap.width, miniMap.height);
+
+            // Draw terrain
+            miniCtx.beginPath();
+            miniCtx.moveTo(terrain[0].x, miniMap.height);
+            terrain.forEach(point => {
+                miniCtx.lineTo(point.x, miniMap.height - (miniMap.height - point.y) / 6);
+            });
+            miniCtx.lineTo(terrain[terrain.length - 1].x, miniMap.height);
+            miniCtx.fillStyle = '#2a2';
+            miniCtx.fill();
+
+            // Draw player
+            miniCtx.fillStyle = '#0f0';
+            miniCtx.fillRect(player.x / (canvas.width / miniMap.width), player.y / 6, 4, 4);
+
+            // Draw enemies
+            miniCtx.fillStyle = '#f00';
+            enemies.forEach(enemy => {
+                miniCtx.fillRect(enemy.x / (canvas.width / miniMap.width), enemy.y / 6, 3, 3);
+            });
+
+            // Draw bullets
+            miniCtx.fillStyle = '#ff0';
+            bullets.forEach(bullet => {
+                miniCtx.fillRect(bullet.x / (canvas.width / miniMap.width), bullet.y / 6, 2, 2);
+            });
+
+            // Draw stars
+            miniCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            stars.forEach(star => {
+                miniCtx.fillRect(star.x / (canvas.width / miniMap.width), star.y / 6, 1, 1);
+            });
+        }
+
+        function hyperspace() {
+            if (hyperspaceCooldown <= 0) {
+                player.x = Math.random() * (canvas.width - player.width) + player.width / 2;
+                player.y = Math.random() * (canvas.height - player.height) + player.height / 2;
+                hyperspaceCooldown = HYPERSPACE_COOLDOWN_TIME;
+                playHyperspaceSound();
+                updateHyperspaceCooldown();
+            }
+        }
+
+        function updateHyperspaceCooldown() {
+            if (hyperspaceCooldown > 0) {
+                hyperspaceCooldown -= 16; // Assuming 60 FPS (1000ms / 60 ≈ 16ms)
+                const cooldownSeconds = Math.ceil(hyperspaceCooldown / 1000);
+                hyperspaceCooldownElement.textContent = `Hyperspace Cooldown: ${cooldownSeconds}s`;
+            } else {
+                hyperspaceCooldownElement.textContent = 'Hyperspace Ready (press i)';
+            }
+        }
+
+        function gameLoop() {
+            if (!gameOver && gameStarted) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                updatePlayer();
+                updateBullets();
+                updateEnemies();
+                updateStars();
+                updateTerrain();
+                updateExplosions();
+                updateHyperspaceCooldown();
+
+                drawStars();
+                drawTerrain();
+                drawPlayer();
+                drawBullets();
+                drawEnemies();
+                drawExplosions();
+                drawMiniMap();
+
+                checkCollisions();
+
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        const keys = {};
+
+        document.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'Space' && !gameOver && gameStarted) {
+                bullets.push({ x: player.x + (player.width / 2) * player.direction, y: player.y, direction: player.direction });
+                playLaserSound();
+            }
+            if (e.code === 'KeyI' && !gameOver && gameStarted) {
+                hyperspace();
+            }
+            if (e.code === 'Enter') {
+                if (gameOver) {
+                    resetGame();
+                } else if (!gameStarted) {
+                    startGame();
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+
+        function resetGame() {
+            score = 0;
+            gameOver = false;
+            player.x = 50;
+            player.y = canvas.height / 2;
+            player.direction = 1;
+            bullets.length = 0;
+            enemies.length = 0;
+            terrain.length = 0;
+            explosions.length = 0;
+            hyperspaceCooldown = 0;
+            createTerrain();
+            updateScore();
+            updateHyperspaceCooldown();
+            gameOverElement.style.display = 'none';
+            gameLoop();
+        }
+
+        function startGame() {
+            gameStarted = true;
+            startScreenElement.style.display = 'none';
+            canvas.focus();
+            audioContext.resume().then(() => {
+                gameLoop();
+            });
+        }
+
+        startButton.addEventListener('click', startGame);
+
+        playerSprite.onload = () => {
+            enemySprite.onload = () => {
+                createStars();
+                //createTerrain();
+                canvas.focus();
+            };
+        };
+
+        // Initialize the game
+        createStars();
+        createTerrain();
+        canvas.focus();
+    </script>
+</body>
+
+</html>
